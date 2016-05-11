@@ -1,0 +1,153 @@
+package com.wedgenetworks.deeplearning;
+
+import org.apache.commons.io.FileUtils;
+import org.deeplearning4j.bagofwords.vectorizer.TextVectorizer;
+import org.deeplearning4j.bagofwords.vectorizer.TfidfVectorizer;
+import org.deeplearning4j.models.embeddings.loader.WordVectorSerializer;
+import org.deeplearning4j.models.word2vec.Word2Vec;
+import org.deeplearning4j.text.sentenceiterator.labelaware.LabelAwareFileSentenceIterator;
+import org.deeplearning4j.text.sentenceiterator.labelaware.LabelAwareSentenceIterator;
+import org.deeplearning4j.text.tokenization.tokenizer.TokenPreProcess;
+import org.deeplearning4j.text.tokenization.tokenizer.preprocessor.EndingPreProcessor;
+import org.deeplearning4j.text.tokenization.tokenizerfactory.TokenizerFactory;
+import org.deeplearning4j.text.tokenization.tokenizerfactory.UimaTokenizerFactory;
+import org.nd4j.linalg.api.ndarray.INDArray;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.io.BufferedWriter;
+import java.io.File;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.util.Arrays;
+import java.util.List;
+
+import static org.nd4j.linalg.factory.Nd4j.sort;
+
+public class Preproc {
+
+    private static Logger log = LoggerFactory.getLogger (Preproc.class);
+
+    private static List<String> stopwords = Arrays.asList ("able",
+            "about", "above", "according", "accordingly", "across", "actually", "after", "afterwards", "again", "against",
+            "ain't", "all", "allow", "allows", "almost", "alone", "along", "already", "also", "although",
+            "always", "among", "amongst", "and", "another", "any", "anybody", "anyhow", "anyone", "anything",
+            "anyway", "anyways", "anywhere", "apart", "appear", "appreciate", "appropriate", "are", "aren't", "around", "aside",
+            "ask", "asking", "associated", "available", "away", "awfully", "be", "became", "because", "become",
+            "becomes", "becoming", "been", "before", "beforehand", "behind", "being", "believe", "below", "beside",
+            "besides", "best", "better", "between", "beyond", "both", "brief", "but", "by", "c'mon", "came", "can",
+            "can't", "cannot", "cant", "cause", "causes", "certain", "certainly", "changes", "clearly", "com",
+            "come", "comes", "concerning", "consequently", "consider", "considering", "contain", "containing", "contains",
+            "corresponding", "could", "couldn't", "course", "currently", "definitely", "described", "despite", "did", "didn't",
+            "different", "does", "doesn't", "doing", "don't", "done", "down", "downwards", "during", "each", "edu", "eight",
+            "either", "else", "elsewhere", "enough", "entirely", "especially", "etc", "even", "ever", "every", "everybody",
+            "everyone", "everything", "everywhere", "exactly", "example", "except", "far", "few", "fifth", "first",
+            "five", "followed", "following", "follows", "for", "former", "formerly", "forth", "four", "from", "further",
+            "furthermore", "get", "gets", "getting", "given", "gives", "goes", "going", "gone", "got", "gotten", "greetings",
+            "had", "hadn't", "happens", "hardly", "has", "hasn't", "have", "haven't", "having", "he's", "hello", "help",
+            "hence", "her", "here", "here's", "hereafter", "hereby", "herein", "hereupon", "hers", "herself", "him", "himself",
+            "his", "hither", "hopefully", "how", "howbeit", "however", "i'd", "i'll", "i'm", "i've", "ignored", "immediate",
+            "inasmuch", "inc", "indeed", "indicate", "indicated", "indicates", "inner", "insofar", "instead", "into",
+            "inward", "isn't", "it'd", "it'll", "it's", "its", "itself", "just", "keep", "keeps", "kept", "know", "knows",
+            "known", "last", "lately", "later", "latter", "latterly", "least", "less", "lest", "let", "let's", "like",
+            "liked", "likely", "little", "look", "looking", "looks", "ltd", "mainly", "many", "may", "maybe", "mean", "meanwhile",
+            "merely", "might", "more", "moreover", "most", "mostly", "much", "must", "myself", "name", "namely", "nd", "near", "nearly",
+            "necessary", "need", "needs", "neither", "never", "nevertheless", "new", "next", "nine", "nobody", "non", "none",
+            "noone", "nor", "normally", "not", "nothing", "novel", "now", "nowhere", "obviously", "off", "often", "okay", "old",
+            "once", "one", "ones", "only", "onto", "other", "others", "otherwise", "ought", "our", "ours", "ourselves", "out", "outside",
+            "over", "overall", "own", "particular", "particularly", "per", "perhaps", "placed", "please", "plus", "possible",
+            "presumably", "probably", "provides", "que", "quite", "rather", "really", "reasonably", "regarding", "regardless",
+            "regards", "relatively", "respectively", "right", "said", "same", "saw", "say", "saying", "says", "second",
+            "secondly", "see", "seeing", "seem", "seemed", "seeming", "seems", "seen", "self", "selves", "sensible", "sent",
+            "serious", "seriously", "seven", "several", "shall", "she", "should", "shouldn't", "since", "six", "some", "somebody",
+            "somehow", "someone", "something", "sometime", "sometimes", "somewhat", "somewhere", "soon", "sorry", "specified", "specify",
+            "specifying", "still", "sub", "such", "sup", "sure", "t's", "take", "taken", "tell", "tends", "than", "thank", "thanks",
+            "thanx", "that", "that's", "thats", "the", "their", "theirs", "them", "themselves", "then", "thence", "there", "there's",
+            "thereafter", "thereby", "therefore", "therein", "theres", "thereupon", "these", "they", "they'd", "they'll", "they're",
+            "they've", "think", "third", "this", "thorough", "thoroughly", "those", "though", "three", "through", "throughout",
+            "thru", "thus", "to", "together", "too", "took", "toward", "towards", "tried", "tries", "truly", "try", "trying", "twice",
+            "two", "un", "under", "unfortunately", "unless", "unlikely", "until", "unto", "up", "upon", "us", "use", "used", "useful",
+            "uses", "using", "usually", "uucp", "value", "various", "very", "via", "viz", "vs", "want", "wants", "was", "wasn't",
+            "way", "we", "we'd", "we'll", "we're", "we've", "welcome", "well", "went", "were", "weren't", "what", "what's", "whatever",
+            "when", "whence", "whenever", "where", "where's", "whereafter", "whereas", "whereby", "wherein", "whereupon", "wherever",
+            "whether", "which", "while", "whither", "who", "who's", "whoever", "whole", "whom", "whose", "why", "will", "willing",
+            "wish", "with", "within", "without", "won't", "wonder", "would", "would", "wouldn't", "yes", "yet", "you", "you'd", "you'll",
+            "you're", "you've", "your", "yours", "yourself", "yourselves", "zero");
+
+
+    public static void main(String[] args) throws Exception {
+
+
+        log.info ("Load data....");
+        File folder = new File ("/Users/akshitatyagi/Downloads/Corpuses/Train/Spam"); //Path of the corpus to build vocabulary
+        LabelAwareSentenceIterator iter = new LabelAwareFileSentenceIterator (folder);
+
+
+        log.info ("Tokenize data....");
+        final EndingPreProcessor preProcessor;
+        preProcessor = new EndingPreProcessor ();
+        TokenizerFactory tokenizer = new UimaTokenizerFactory ();
+        tokenizer.setTokenPreProcessor (new TokenPreProcess () {
+            @Override
+            public String preProcess(String token) {
+                token = token.toLowerCase ();
+                String base = preProcessor.preProcess (token);
+                base = base.replaceAll ("\\d", "d");
+                if (base.endsWith ("ly") || base.endsWith ("ing")) System.out.println ();
+                return base;
+            }
+        });
+
+
+        log.info ("Building model....");
+        TextVectorizer vec = new TfidfVectorizer.Builder ()
+                .setIterator (iter)
+                .setStopWords (stopwords)
+                .setMinWordFrequency (20)
+                .setTokenizerFactory (tokenizer)
+                .build ();
+
+
+        log.info ("Fitting the model....");
+        vec.fit ();
+
+        WordVectorSerializer.writeWordVectors((Word2Vec) vec, "words.txt");
+
+
+        log.info ("Transforming the model....");
+        File folder2 = new File ("/Users/akshitatyagi/Downloads/Corpuses/Test/Spam");   //Path of the training/test data to be transformed
+        File[] listOfFiles = folder2.listFiles ();
+
+        for (int i = 0; i < listOfFiles.length; i++) {
+            File file = listOfFiles[i];
+            String content = FileUtils.readFileToString (file);
+            String key = "TestSpamFile"+ i + ".txt";    //Setting the name of the files storing vectors
+
+            if (file.isFile () && file.getName ().endsWith (".txt")) {
+                String filePath = "/Users/akshitatyagi/Downloads/Corpuses/Vectors/Test/Spam/" + key;    //Path to store training/test vectors
+                INDArray output = vec.transform (content);
+                INDArray output2 = sort (output, 1, false);                                             //Sorts the vectors in descending order
+                writeOutput (output2, filePath, ",");                                                   //Writes only top k results to the text file
+            }
+        }
+
+    }
+
+    public static void writeOutput(INDArray output, String filePath, String split) throws IOException {
+        BufferedWriter writer = new BufferedWriter (new FileWriter (filePath));
+        for (int i = 0; i < output.rows (); i++) {
+            StringBuffer sb = new StringBuffer ();
+            INDArray row = output.getRow (i);
+            for (int j = 0; j < 500; j++) {                                                             // Here, k = 500
+                sb.append (row.getDouble (j));
+                sb.append (split);
+            }
+            sb.append ("\n");
+            writer.write (sb.toString ());
+        }
+
+        writer.flush ();
+        writer.close ();
+
+    }
+}
