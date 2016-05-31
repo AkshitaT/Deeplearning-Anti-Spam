@@ -1,10 +1,6 @@
-package com.wedgenetworks.deeplearning;
-
-import org.canova.api.conf.Configuration;
 import org.canova.api.records.reader.RecordReader;
 import org.canova.api.split.FileSplit;
 import org.canova.nd4j.nlp.reader.TfidfRecordReader;
-import org.canova.nd4j.nlp.vectorizer.TfidfVectorizer;
 import org.deeplearning4j.datasets.canova.RecordReaderDataSetIterator;
 import org.deeplearning4j.datasets.iterator.DataSetIterator;
 import org.deeplearning4j.eval.Evaluation;
@@ -42,22 +38,22 @@ public class SDAEngine {
         int batchSize = 100;
 
 
-        TfidfVectorizer vectorizer = new TfidfVectorizer ();
-        Configuration config = new Configuration ();
-        config.setBoolean (RecordReader.APPEND_LABEL, true);
-        config.setInt(TfidfVectorizer.MIN_WORD_FREQUENCY, 10);
-        vectorizer.initialize (config);
-
-
         log.info ("Loading the train data....");
-        RecordReader readerTrain = new TfidfRecordReader ();
-        readerTrain.initialize (config, new FileSplit (new File ("/Users/akshitatyagi/Downloads/Corpuses/Train/")));    // Labeled path to the training vectors
+        Configuration config = new Configuration();
+        config.setInt(TfidfVectorizer.MIN_WORD_FREQUENCY, 15);
+
+        TfidfRecordReader readerTrain = new TfidfRecordReader();
+        readerTrain.initialize (config, new FileSplit (new File ("Train/")));                           // Labeled path to the training vectors
         DataSetIterator trainIter = new RecordReaderDataSetIterator (readerTrain, batchSize);
+
+        int inputNum = readerTrain.getNumFeatures();
+        log.info(" Number of Features: " + inputNum);
 
 
         log.info ("Loading the test data...");
-        RecordReader readerTest = new TfidfRecordReader ();
-        readerTest.initialize (config, new FileSplit (new File ("/Users/akshitatyagi/Downloads/Corpuses/Test/")));      // Labeled path to the text vectors
+        TfidfRecordReader readerTest = new TfidfRecordReader ();
+        readerTest.initialize (config, new FileSplit (new File ("Test/")));                             // Labeled path to the text vectors
+        readerTest.setTfidfVectorizer(readerTrain.getTfidfVectorizer());                                                                       //reuse vectorizer
         DataSetIterator testIter = new RecordReaderDataSetIterator (readerTest, batchSize);
 
 
@@ -133,6 +129,7 @@ public class SDAEngine {
 
 
         log.info (eval.stats ());
+        log.info ("**************** FINISH ********************");
 
     }
 }
