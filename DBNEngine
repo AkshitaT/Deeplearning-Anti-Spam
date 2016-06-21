@@ -1,0 +1,176 @@
+package com.wedgenetworks.deeplearning;
+
+import org.canova.api.conf.Configuration;
+import org.canova.api.records.reader.RecordReader;
+import org.canova.api.split.FileSplit;
+import org.canova.nd4j.nlp.reader.TfidfRecordReader;
+import org.canova.nd4j.nlp.vectorizer.TfidfVectorizer;
+import org.deeplearning4j.datasets.canova.RecordReaderDataSetIterator;
+import org.deeplearning4j.datasets.iterator.DataSetIterator;
+import org.deeplearning4j.eval.Evaluation;
+import org.deeplearning4j.nn.api.OptimizationAlgorithm;
+import org.deeplearning4j.nn.conf.GradientNormalization;
+import org.deeplearning4j.nn.conf.MultiLayerConfiguration;
+import org.deeplearning4j.nn.conf.NeuralNetConfiguration;
+import org.deeplearning4j.nn.conf.Updater;
+import org.deeplearning4j.nn.conf.layers.OutputLayer;
+import org.deeplearning4j.nn.conf.layers.RBM;
+import org.deeplearning4j.nn.multilayer.MultiLayerNetwork;
+import org.deeplearning4j.nn.weights.WeightInit;
+import org.deeplearning4j.optimize.listeners.ScoreIterationListener;
+import org.nd4j.linalg.api.ndarray.INDArray;
+import org.nd4j.linalg.dataset.DataSet;
+import org.nd4j.linalg.dataset.SplitTestAndTrain;
+import org.nd4j.linalg.lossfunctions.LossFunctions;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.io.File;
+import java.util.Arrays;
+import java.util.List;
+
+public class DBNEngine {
+
+    private static Logger log = LoggerFactory.getLogger(DBNEngine.class);
+
+    public static void main(String[] args) throws Exception {
+
+        int outputNum = 2;
+        int batchSize = 33702;
+        int iterations = 1;
+        int seed = 123;
+
+
+        File trainDirectory = new File("/Users/akshitatyagi/Downloads/Corpuses/Enron/");
+        File saveDirectory = new File("/Users/akshitatyagi/Downloads/Corpuses/Enron/DataSave");
+        List<String> label = Arrays.asList(trainDirectory.list());
+        int numLabels = label.size();
+
+
+        Configuration config = new Configuration();
+        config.setInt(TfidfVectorizer.MIN_WORD_FREQUENCY, 50);
+        config.setBoolean(RecordReader.APPEND_LABEL, true);
+
+
+        TfidfRecordReader trainReader = new TfidfRecordReader();
+        trainReader.initialize(config, new FileSplit(trainDirectory));
+        DataSetIterator trainIter = new RecordReaderDataSetIterator(trainReader, batchSize, -1, numLabels);
+
+        int numInputs = trainReader.getNumFeatures();
+        log.info("Number of Features: " + numInputs);
+
+        DataSet next;
+        DataSet loadData = new DataSet ();
+
+
+        //Load entire corpus to 'next' and shuffle it.
+        log.info("Loading the train data....");
+        if(!saveDirectory.exists()) {
+
+            next = trainIter.next();
+
+            log.info("Shuffling the data in memory..");
+            next.shuffle();
+
+            log.info("Saving the DataSet..");
+            next.save(saveDirectory);
+
+            log.info("Loading the DataSet..");
+            loadData.load(saveDirectory);
+        }
+        else {
+
+            log.info("Loading the DataSet..");
+            loadData.load(saveDirectory);
+        }
+
+
+        log.info("Build model....");
+        MultiLayerConfiguration conf = new NeuralNetConfiguration.Builder()
+                .seed(seed)
+                .optimizationAlgo(OptimizationAlgorithm.STOCHASTIC_GRADIENT_DESCENT)
+                .gradientNormalization(GradientNormalization.RenormalizeL2PerLayer)
+                .gradientNormalizationThreshold(1.0)
+                .iterations(iterations)
+                .updater(Updater.SGD)
+                .activation("relu")
+                //.momentum(0.9)
+                .learningRate(1e-6)
+                .learningRateScoreBasedDecayRate(1e-1)
+                .regularization(true)
+                .l2(5e-4)
+                .list()
+                .layer(0, new RBM.Builder()
+                        .nIn(numInputs)
+                        .nOut(4000)
+                        .weightInit(WeightInit.XAVIER)
+                        .lossFunction(LossFunctions.LossFunction.RMSE_XENT)
+                        .visibleUnit(RBM.VisibleUnit.BINARY)
+                        .hiddenUnit(RBM.HiddenUnit.BINARY)
+                        .build())
+                .layer(1, new RBM.Builder()
+                        .nIn(4000)
+                        .nOut(2000)
+                        .weightInit(WeightInit.XAVIER)
+                        .lossFunction(LossFunctions.LossFunction.RMSE_XENT)
+                        .visibleUnit(RBM.VisibleUnit.BINARY)
+                        .hiddenUnit(RBM.HiddenUnit.BINARY)
+                        .build())
+                .layer(2, new RBM.Builder()
+                        .nIn(2000)
+                        .nOut(500)
+                        .weightInit(WeightInit.XAVIER)
+                        .lossFunction(LossFunctions.LossFunction.RMSE_XENT)
+                        .visibleUnit(RBM.VisibleUnit.BINARY)
+                        .hiddenUnit(RBM.HiddenUnit.BINARY)
+                        .build())
+                .layer(3, new OutputLayer.Builder(LossFunctions.LossFunction.NEGATIVELOGLIKELIHOOD)
+                        .activation("softmax")
+                        .nIn(500)
+                        .nOut(outputNum)
+                        .build())
+                .pretrain(true)
+                .backprop(false)
+                .build();
+
+
+        MultiLayerNetwork model = new MultiLayerNetwork(conf);
+        model.init();
+        model.setListeners(new ScoreIterationListener(1));
+
+
+        //split test and train
+        SplitTestAndTrain testAndTrain = loadData.splitTestAndTrain(0.8);  //Use 80% of data for training
+        DataSet trainingData = testAndTrain.getTrain();
+        DataSet testingData = testAndTrain.getTest();
+
+
+        //Partition dataset to mini batches.
+        List<DataSet> dataList = trainingData.batchBy(100); // I can just use next here to use the whole dataset for training
+
+
+        log.info("Train model....");
+        int counter = 0;
+
+        for (DataSet data : dataList) {
+            counter++;
+            model.fit(data);
+            System.out.println("Counter: " + counter);
+            System.out.println("Labels distribution: " + data.labelCounts());
+        }
+
+
+        log.info("Evaluate model....");
+        System.out.println("Parameters: " + model.numParams());
+        Evaluation eval = new Evaluation(outputNum);
+        INDArray output = model.output(testingData.getFeatureMatrix());
+        eval.eval(testingData.getLabels(), output);
+
+
+        log.info(eval.stats());
+
+
+        log.info("**************** FINISH ********************");
+
+    }
+}
