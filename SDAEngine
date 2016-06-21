@@ -1,6 +1,10 @@
+package com.wedgenetworks.deeplearning;
+
+import org.canova.api.conf.Configuration;
 import org.canova.api.records.reader.RecordReader;
 import org.canova.api.split.FileSplit;
 import org.canova.nd4j.nlp.reader.TfidfRecordReader;
+import org.canova.nd4j.nlp.vectorizer.TfidfVectorizer;
 import org.deeplearning4j.datasets.canova.RecordReaderDataSetIterator;
 import org.deeplearning4j.datasets.iterator.DataSetIterator;
 import org.deeplearning4j.eval.Evaluation;
@@ -13,123 +17,171 @@ import org.deeplearning4j.nn.conf.layers.AutoEncoder;
 import org.deeplearning4j.nn.conf.layers.OutputLayer;
 import org.deeplearning4j.nn.multilayer.MultiLayerNetwork;
 import org.deeplearning4j.nn.weights.WeightInit;
-import org.deeplearning4j.optimize.api.IterationListener;
 import org.deeplearning4j.optimize.listeners.ScoreIterationListener;
 import org.nd4j.linalg.api.ndarray.INDArray;
 import org.nd4j.linalg.dataset.DataSet;
+import org.nd4j.linalg.dataset.SplitTestAndTrain;
 import org.nd4j.linalg.lossfunctions.LossFunctions.LossFunction;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.File;
-import java.util.Collections;
-
+import java.util.Arrays;
+import java.util.List;
 
 public class SDAEngine {
 
-    private static Logger log = LoggerFactory.getLogger (SDAEngine.class);
+    private static Logger log = LoggerFactory.getLogger(SDAEngine.class);
+
 
     public static void main(String[] args) throws Exception {
 
+        int batchSize = 33702;
         int outputNum = 2;
-        int inputNum = 500;
-        int iterations = 10;
-        int seed = 123;
-        int batchSize = 100;
+
+        File trainDirectory = new File("/Users/akshitatyagi/Downloads/Corpuses/Enron/");
+        File saveDirectory = new File("/Users/akshitatyagi/Downloads/Corpuses/Enron/DataSave");
+        List<String> label = Arrays.asList(trainDirectory.list());
+        int numLabels = label.size();
 
 
-        log.info ("Loading the train data....");
         Configuration config = new Configuration();
-        config.setInt(TfidfVectorizer.MIN_WORD_FREQUENCY, 15);
-
-        TfidfRecordReader readerTrain = new TfidfRecordReader();
-        readerTrain.initialize (config, new FileSplit (new File ("Train/")));                           // Labeled path to the training vectors
-        DataSetIterator trainIter = new RecordReaderDataSetIterator (readerTrain, batchSize);
-
-        int inputNum = readerTrain.getNumFeatures();
-        log.info(" Number of Features: " + inputNum);
+        config.setInt(TfidfVectorizer.MIN_WORD_FREQUENCY, 50);
+        config.setBoolean(RecordReader.APPEND_LABEL, true);
 
 
-        log.info ("Loading the test data...");
-        TfidfRecordReader readerTest = new TfidfRecordReader ();
-        readerTest.initialize (config, new FileSplit (new File ("Test/")));                             // Labeled path to the text vectors
-        readerTest.setTfidfVectorizer(readerTrain.getTfidfVectorizer());                                                                       //reuse vectorizer
-        DataSetIterator testIter = new RecordReaderDataSetIterator (readerTest, batchSize);
+        TfidfRecordReader trainReader = new TfidfRecordReader();
+        DataSet next;
+        DataSet loadData = new DataSet ();
 
 
-        log.info ("Build model....");
-        MultiLayerConfiguration conf = new NeuralNetConfiguration.Builder ()
-                .seed (seed)
-                .gradientNormalization (GradientNormalization.ClipElementWiseAbsoluteValue)
-                .gradientNormalizationThreshold (1.0)
-                .iterations (iterations)
-                .updater (Updater.NESTEROVS)
-                .momentum (0.5)
-                .momentumAfter (Collections.singletonMap (3, 0.9))
-                .optimizationAlgo (OptimizationAlgorithm.CONJUGATE_GRADIENT)
-                .list ()
-                .layer (0, new AutoEncoder.Builder ()
-                        .nIn (inputNum)
-                        .nOut (250)
-                        .weightInit (WeightInit.XAVIER)
-                        .lossFunction (LossFunction.RMSE_XENT)
-                        .corruptionLevel (0.3)
-                        .build ()
-                )
-                .layer (1, new AutoEncoder.Builder ()
-                        .nIn (250)
-                        .nOut (125)
-                        .weightInit (WeightInit.XAVIER)
-                        .lossFunction (LossFunction.RMSE_XENT)
-                        .corruptionLevel (0.3)
-                        .build ()
-                )
-                .layer (2, new AutoEncoder.Builder ()
-                        .nIn (125)
-                        .nOut (50)
-                        .weightInit (WeightInit.XAVIER)
-                        .lossFunction (LossFunction.RMSE_XENT)
-                        .corruptionLevel (0.3)
-                        .build ()
-                )
-                .layer (3, new OutputLayer.Builder (LossFunction.NEGATIVELOGLIKELIHOOD)
-                        .activation ("softmax")
-                        .nIn (75)
-                        .nOut (outputNum)
-                        .build ()
-                )
-                .pretrain (true)
-                .backprop (false)
-                .build ();
+        //Load entire corpus to 'next' and shuffle it.
+        log.info("Loading the train data....");
+        if(!saveDirectory.exists()) {
+            trainReader.initialize(config, new FileSplit(trainDirectory));
+            DataSetIterator trainIter = new RecordReaderDataSetIterator(trainReader, batchSize, -1, numLabels);
+            next = trainIter.next();
 
+            log.info("Shuffling the data in memory..");
+            next.shuffle();
 
-        MultiLayerNetwork model = new MultiLayerNetwork (conf);
-        model.init ();
-        model.setListeners (Collections.singletonList ((IterationListener) new ScoreIterationListener (1)));
-        //model.setListeners(new HistogramIterationListener(1));        // Generating the Visualizing model
+            log.info("Saving the DataSet..");
+            next.save(saveDirectory);
 
-
-        log.info ("Train model....");
-        try {
-            model.fit (trainIter);
-        } catch (Exception ex) {
-            ex.printStackTrace();
+            log.info("Loading the DataSet..");
+            loadData.load(saveDirectory);
+        }
+        else {
+            loadData.load(saveDirectory);
         }
 
 
-        log.info ("Evaluate model....");
-        Evaluation eval = new Evaluation (outputNum);
-        while (testIter.hasNext ()) {
-            DataSet t = testIter.next ();
-            INDArray features = t.getFeatureMatrix ();
-            INDArray labels = t.getLabels ();
-            INDArray predicted = model.output (features, false);
-            eval.eval (labels, predicted);                          // Comparing the label predicted with the original label of the test data
+        int numInputs = trainReader.getNumFeatures();
+        log.info("Number of Features: " + numInputs);
+
+
+        log.info("Build model....");
+
+        int iterations = 1;
+        int seed = 123;
+        WeightInit weightInit = WeightInit.XAVIER;
+        String activation = "relu";
+        Updater updater = Updater.NESTEROVS;
+        double lr = 0.00001;           //Note: Seems like my learning rate was too high. I decreased it from 1e-4 to 1e-6
+        double mu = 0.9;               //Note: I also dropped the momentum down to 0.5 from 0.9
+        double l2 = 1e-4;              //Note: Reduced the l2 from 5e-6 to 1e-4
+        boolean regularization = true;
+
+        MultiLayerConfiguration conf = new NeuralNetConfiguration.Builder()
+                .seed(seed)
+                .iterations(iterations)
+                //.activation(activation)
+                .updater(updater)
+                .gradientNormalization(GradientNormalization.ClipElementWiseAbsoluteValue)
+                .optimizationAlgo(OptimizationAlgorithm.STOCHASTIC_GRADIENT_DESCENT)
+                .gradientNormalizationThreshold(1.0)
+                .learningRate(lr)
+                .momentum(mu)
+                .regularization(regularization)
+                .l2(l2)
+                .list()
+                .layer(0, new AutoEncoder.Builder()
+                        .name("Input- Layer 1")
+                        .nIn(numInputs)
+                        .nOut(4000)
+                        .weightInit(weightInit)
+                        .lossFunction(LossFunction.RMSE_XENT)
+                        .corruptionLevel(0.3)
+                        .build()
+                )
+                .layer(1, new AutoEncoder.Builder()
+                        .name("DA- Layer 2")
+                        .nIn(4000)
+                        .nOut(2000)
+                        .weightInit(weightInit)
+                        .lossFunction(LossFunction.RMSE_XENT)
+                        .corruptionLevel(0.3)
+                        .build()
+                )
+                .layer(2, new AutoEncoder.Builder()
+                        .name("DA- Layer 3")
+                        .nIn(2000)
+                        .nOut(500)
+                        .weightInit(weightInit)
+                        .lossFunction(LossFunction.RMSE_XENT)
+                        .corruptionLevel(0.3)
+                        .build()
+                )
+                .layer(3, new OutputLayer.Builder(LossFunction.NEGATIVELOGLIKELIHOOD)
+                        .name("Output- Layer 4")
+                        .activation("softmax")
+                        .nIn(500)
+                        .nOut(outputNum)
+                        .build()
+                )
+                .pretrain(true)
+                .backprop(false)
+                .build();
+
+
+        MultiLayerNetwork model = new MultiLayerNetwork(conf);
+        model.init();
+        model.setListeners(new ScoreIterationListener(1));
+        //model.setListeners(new HistogramIterationListener(1)); // Generating the Visualizing model
+
+
+        //split test and train
+        SplitTestAndTrain testAndTrain = loadData.splitTestAndTrain(0.8);  //Use 80% of data for training
+        DataSet trainingData = testAndTrain.getTrain();
+        DataSet testingData = testAndTrain.getTest();
+
+
+        //Partition dataset to mini batches.
+        List<DataSet> dataList = trainingData.batchBy(100); // I can just use next here to use the whole dataset for training
+
+
+        log.info("Train model....");
+        int counter = 0;
+
+        for (DataSet data : dataList) {
+            counter++;
+            model.fit(data);
+            System.out.println("Counter: " + counter);
+            System.out.println("Labels distribution: " + data.labelCounts());
         }
 
 
-        log.info (eval.stats ());
-        log.info ("**************** FINISH ********************");
+        log.info("Evaluate model....");
+        System.out.println("Parameters: " + model.numParams());
+        Evaluation eval = new Evaluation(outputNum);
+        INDArray output = model.output(testingData.getFeatureMatrix());
+        eval.eval(testingData.getLabels(), output);
+
+
+        log.info(eval.stats());
+
+
+        log.info("**************** FINISH ********************");
 
     }
 }
